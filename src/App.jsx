@@ -5,14 +5,6 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 
 export default function BedtimeRoutineApp() {
     const USE_REAL_AI = import.meta.env.VITE_USE_REAL_AI === 'true';
-    const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
-
-    // Log to verify (add this temporarily for debugging)
-    console.log('🔍 Debug Info:', {
-        USE_REAL_AI,
-        API_KEY: API_KEY ? `${API_KEY.substring(0, 15)}...` : 'NOT SET',
-        env: import.meta.env
-    });
 
     const [wakeTime, setWakeTime] = useState('07:00');
     const [tiredness, setTiredness] = useState(5);
@@ -418,39 +410,36 @@ export default function BedtimeRoutineApp() {
 
             let aiResponse;
 
-            // Check environment and API key availability
-            if (USE_REAL_AI && API_KEY) {
-                console.log('Using Real Claude API');
+            // Check environment (API key now lives on the server)
+            if (USE_REAL_AI) {
+                console.log('Using Real Claude API (via server)');
 
                 try {
-                    const response = await fetch('https://api.anthropic.com/v1/messages', {
+                    const response = await fetch('/api/ai', {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json',
-                            'anthropic-version': '2023-06-01',
-                            'x-api-key': API_KEY
+                            'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
-                            model: 'claude-sonnet-4-20250514',
-                            max_tokens: 1000,
-                            messages: [
-                                {
-                                    role: 'user',
-                                    content: `You are a sleep coach helping someone improve their sleep. Here's their sleep data: ${JSON.stringify(sleepData)} User question: ${chatInput} Provide helpful, science-based advice in a friendly, conversational tone. Keep responses concise (2-3 paragraphs max).`
-                                }
-                            ]
+                            sleepData,
+                            chatInput
                         })
                     });
 
                     if (!response.ok) {
-                        throw new Error(`API Error: ${response.status}`);
+                        throw new Error(`Server API Error: ${response.status}`);
                     }
 
                     const data = await response.json();
-                    aiResponse = data.content?.find(c => c.type === 'text')?.text || 'Sorry, I could not process that.';
+
+                    // Safely extract Claude text response
+                    aiResponse =
+                        data?.content?.find(c => c.type === 'text')?.text ||
+                        'Sorry, I could not process that.';
                 } catch (apiError) {
                     console.error('Real API failed, falling back to mock:', apiError);
-                    // Fallback to mock if real API fails
+
+                    // Fallback to mock if server/API fails
                     await new Promise(resolve => setTimeout(resolve, 1000));
                     aiResponse = generateMockAIResponse(chatInput, sleepData);
                 }
@@ -461,23 +450,31 @@ export default function BedtimeRoutineApp() {
                 aiResponse = generateMockAIResponse(chatInput, sleepData);
             }
 
-            const aiMessage = { role: 'assistant', content: aiResponse, timestamp: Date.now() };
+            const aiMessage = {
+                role: 'assistant',
+                content: aiResponse,
+                timestamp: Date.now()
+            };
+
             const finalMessages = [...updatedMessages, aiMessage];
             setChatMessages(finalMessages);
 
             await window.storage.set('chat-messages', JSON.stringify(finalMessages));
         } catch (error) {
             console.error('AI Error:', error);
+
             const errorMessage = {
                 role: 'assistant',
                 content: 'Sorry, I encountered an error. Please try again.',
                 timestamp: Date.now()
             };
+
             setChatMessages([...updatedMessages, errorMessage]);
         } finally {
             setIsAIThinking(false);
         }
     };
+
 
     const generateMockAIResponse = (question, sleepData) => {
         const lowerQ = question.toLowerCase();
