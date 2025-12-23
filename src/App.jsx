@@ -2,7 +2,18 @@
 import { Moon, Sun, Clock, Activity, Coffee, Book, Tv, Dumbbell, Bath, AlertCircle, TrendingUp, Calendar, Download, Save, Trash2, BarChart3, Zap, Brain, Heart, Wind, Droplets, ChevronDown, ChevronUp, MessageCircle, Send, X } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
 
+
 export default function BedtimeRoutineApp() {
+    const USE_REAL_AI = import.meta.env.VITE_USE_REAL_AI === 'true';
+    const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+
+    // Log to verify (add this temporarily for debugging)
+    console.log('🔍 Debug Info:', {
+        USE_REAL_AI,
+        API_KEY: API_KEY ? `${API_KEY.substring(0, 15)}...` : 'NOT SET',
+        env: import.meta.env
+    });
+
     const [wakeTime, setWakeTime] = useState('07:00');
     const [tiredness, setTiredness] = useState(5);
     const [sleepQuality, setSleepQuality] = useState(5);
@@ -17,6 +28,7 @@ export default function BedtimeRoutineApp() {
         alcohol: false,
         nap: false
     });
+
     const [routine, setRoutine] = useState(null);
     const [sleepLog, setSleepLog] = useState([]);
     const [showStats, setShowStats] = useState(false);
@@ -404,41 +416,48 @@ export default function BedtimeRoutineApp() {
                 stats: calculateStats()
             };
 
-            // Check if we're running in the artifact environment (has API access)
-            const isArtifactEnvironment = window.location.hostname.includes('claude.ai');
-
             let aiResponse;
 
-            if (isArtifactEnvironment) {
-                // Real API call (only works in claude.ai artifacts)
-                const response = await fetch('https://api.anthropic.com/v1/messages', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'anthropic-version': '2023-06-01'
-                    },
-                    body: JSON.stringify({
-                        model: 'claude-sonnet-4-20250514',
-                        max_tokens: 1000,
-                        messages: [
-                            {
-                                role: 'user',
-                                content: `You are a sleep coach helping someone improve their sleep. Here's their sleep data: ${JSON.stringify(sleepData)}
+            // Check environment and API key availability
+            if (USE_REAL_AI && API_KEY) {
+                console.log('Using Real Claude API');
 
-User question: ${chatInput}
+                try {
+                    const response = await fetch('https://api.anthropic.com/v1/messages', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'anthropic-version': '2023-06-01',
+                            'x-api-key': API_KEY
+                        },
+                        body: JSON.stringify({
+                            model: 'claude-sonnet-4-20250514',
+                            max_tokens: 1000,
+                            messages: [
+                                {
+                                    role: 'user',
+                                    content: `You are a sleep coach helping someone improve their sleep. Here's their sleep data: ${JSON.stringify(sleepData)} User question: ${chatInput} Provide helpful, science-based advice in a friendly, conversational tone. Keep responses concise (2-3 paragraphs max).`
+                                }
+                            ]
+                        })
+                    });
 
-Provide helpful, science-based advice in a friendly, conversational tone. Keep responses concise (2-3 paragraphs max).`
-                            }
-                        ]
-                    })
-                });
+                    if (!response.ok) {
+                        throw new Error(`API Error: ${response.status}`);
+                    }
 
-                const data = await response.json();
-                aiResponse = data.content?.find(c => c.type === 'text')?.text || 'Sorry, I could not process that.';
+                    const data = await response.json();
+                    aiResponse = data.content?.find(c => c.type === 'text')?.text || 'Sorry, I could not process that.';
+                } catch (apiError) {
+                    console.error('Real API failed, falling back to mock:', apiError);
+                    // Fallback to mock if real API fails
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    aiResponse = generateMockAIResponse(chatInput, sleepData);
+                }
             } else {
-                // Mock AI responses for local development
+                // Use mock AI
+                console.log('🎭 Using Mock AI');
                 await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate API delay
-
                 aiResponse = generateMockAIResponse(chatInput, sleepData);
             }
 
@@ -460,11 +479,9 @@ Provide helpful, science-based advice in a friendly, conversational tone. Keep r
         }
     };
 
-    // Add this helper function to generate intelligent mock responses
     const generateMockAIResponse = (question, sleepData) => {
         const lowerQ = question.toLowerCase();
 
-        // Analyze user's data for personalized responses
         const stats = sleepData.stats;
         const hasLogs = sleepData.recentLogs.length > 0;
         const avgQuality = hasLogs ? stats.avgQuality : sleepData.currentQuality;
@@ -473,7 +490,6 @@ Provide helpful, science-based advice in a friendly, conversational tone. Keep r
             .filter(([key, val]) => val && ['caffeine', 'alcohol', 'screenTime', 'heavyMeal'].includes(key))
             .map(([key]) => key);
 
-        // Pattern matching for different question types
         if (lowerQ.includes('tired') || lowerQ.includes('exhausted') || lowerQ.includes('wake up')) {
             if (avgSleep < 7) {
                 return `Based on your data, you're averaging ${avgSleep} hours of sleep, which is below the recommended 7-9 hours. Sleep debt accumulates and can leave you feeling tired even if you slept recently.\n\nI'd recommend: (1) Try going to bed 30-60 minutes earlier, (2) Maintain a consistent sleep schedule, even on weekends, (3) Avoid hitting snooze - it fragments your final sleep cycle. Your body needs sustained, quality sleep to feel truly refreshed.`;
@@ -502,7 +518,6 @@ Provide helpful, science-based advice in a friendly, conversational tone. Keep r
             return `Looking at your sleep data:\n\n• Average sleep: ${avgSleep}h ${avgSleep < 7 ? '(below recommended 7-9h)' : avgSleep > 9 ? '(above typical needs)' : '(good range!)'}\n• Average quality: ${avgQuality}/10 ${avgQuality < 6 ? '(needs improvement)' : avgQuality < 7.5 ? '(decent, room to improve)' : '(great!)'}\n• Consistency: ${stats?.consistency?.toFixed(0) || 'N/A'}% ${stats?.consistency < 70 ? '(try to be more consistent)' : '(good!)'}\n• Sleep debt: ${stats?.sleepDebt || 0}h over last week\n\n${badActivities.length > 0 ? `I notice you're engaging in ${badActivities.join(', ')} - these could be impacting your quality. Consider reducing these activities before bed.` : 'Your evening habits look good! Keep it up.'}\n\nYour biggest opportunity: ${avgSleep < 7 ? 'Increase total sleep time' : avgQuality < 7 ? 'Focus on sleep quality through better habits' : 'Maintain consistency!'}`;
         }
 
-        // Default response
         return `Great question! Sleep is complex and affected by many factors. Based on your profile:\n\nCurrent tiredness: ${sleepData.currentTiredness}/10\nRecent quality: ${avgQuality}/10\n${badActivities.length > 0 ? `Activities to watch: ${badActivities.join(', ')}\n` : ''}\nKey principles: (1) Consistency is crucial - same sleep/wake times daily, (2) Quality over quantity - optimize your environment and habits, (3) Listen to your body - 7-9 hours is typical but individual needs vary.\n\nWhat specific aspect of your sleep would you like to improve? I can give more targeted advice!`;
     };
 
