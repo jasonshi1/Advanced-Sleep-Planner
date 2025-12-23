@@ -4,7 +4,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 
 
 export default function BedtimeRoutineApp() {
-    const USE_REAL_AI = import.meta.env.VITE_USE_REAL_AI === 'true';
+    const USE_REAL_AI = import.meta.env.USE_REAL_AI === 'true';
 
     const [wakeTime, setWakeTime] = useState('07:00');
     const [tiredness, setTiredness] = useState(5);
